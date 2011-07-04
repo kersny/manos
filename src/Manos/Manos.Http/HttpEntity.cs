@@ -64,6 +64,7 @@ namespace Manos.Http {
 
 		private IHttpBodyHandler body_handler;
 		private bool finished_reading;
+		private bool Upgraded;
 
 		private IAsyncWatcher end_watcher;
 
@@ -405,31 +406,35 @@ namespace Manos.Http {
 		}
 
 		private void OnBytesRead (ByteBuffer bytes)
-		{
-			try {
-				parser.Execute (parser_settings, bytes);
-			} catch (Exception e) {
-				Console.WriteLine ("Exception while parsing");
-				Console.WriteLine (e);
+		{	if (Upgraded)
+			{
+				if (OnUpgradeData != null) {
+					OnUpgradeData(bytes);
+				}
 			}
-
-			if (finished_reading && parser.Upgrade) {
-
-				//
-				// Well, this is a bit of a hack.  Ideally, maybe there should be a putback list
-				// on the socket so we can put these bytes back into the stream and the upgrade
-				// protocol handler can read them out as if they were just reading normally.
-				//
-
-				if (bytes.Position < bytes.Length) {
-					byte [] upgrade_head = new byte [bytes.Length - bytes.Position];
-					Array.Copy (bytes.Bytes, bytes.Position, upgrade_head, 0, upgrade_head.Length);
-
-					SetProperty ("UPGRADE_HEAD", upgrade_head);
+			else
+			{
+				try {
+					parser.Execute (parser_settings, bytes);
+				} catch (Exception e) {
+					Console.WriteLine ("Exception while parsing");
+					Console.WriteLine (e);
 				}
 
-				// This is delayed until here with upgrade connnections.
-				OnFinishedReading (parser);
+				if (finished_reading && parser.Upgrade) {
+					//
+					// Well, this is a bit of a hack.  Ideally, maybe there should be a putback list
+					// on the socket so we can put these bytes back into the stream and the upgrade
+					// protocol handler can read them out as if they were just reading normally.
+					//
+					int length = bytes.Length;
+					byte[] ret = new byte[length];
+					Array.Copy(bytes.Bytes, bytes.Position, ret, 0, bytes.Length);
+					SetProperty("UPGRADE_HEAD", ret);
+					Upgraded = true;
+					// This is delayed until here with upgrade connnections.
+					OnFinishedReading (parser);
+				}
 			}
 		}
 
@@ -584,6 +589,7 @@ namespace Manos.Http {
 
 		public event Action OnEnd;
 		public event Action OnCompleted;
+		public event Action<ByteBuffer> OnUpgradeData;
 	}
 
 }
